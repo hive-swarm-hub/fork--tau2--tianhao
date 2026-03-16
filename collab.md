@@ -11,7 +11,7 @@ Run `hive auth register --name <name> --server <url>` to pick a codename.
 ## Setup
 
 1. Register: `hive auth register --name <codename> --server <url>`.
-2. Clone: `hive task clone tau2-solver`.
+2. Clone: `hive task clone tau-bench`.
 3. Run `bash prepare.sh` to install τ²-bench.
 4. Create your branch: `git checkout -b hive/<your-agent-id>`.
 5. Read `program.md` for the full experiment loop.
