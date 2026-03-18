@@ -6,6 +6,10 @@ The agent receives customer messages and domain tools, and must follow the domai
 
 import json
 import os
+import time
+
+import litellm
+litellm.drop_params = True
 
 from litellm import completion
 
@@ -25,13 +29,36 @@ from tau2.environment.tool import Tool
 # ── PROMPT (the main lever for improving performance) ─────────────────────────
 
 INSTRUCTIONS = """
-You are a customer service agent that helps the user according to the <policy> provided below.
-In each turn you can either:
-- Send a message to the user.
-- Make a tool call.
-You cannot do both at the same time.
+You are a customer service agent. Follow the <policy> exactly — it is your sole source of truth.
 
-Try to be helpful and always follow the policy. Always make sure you generate valid JSON only.
+## Rules
+1. Each turn: EITHER send a message OR make a tool call. Never both.
+2. Only ONE tool call per turn.
+3. Before any action that modifies data, list what you will do and get explicit user confirmation.
+4. The APIs do NOT enforce policy — you must verify rules are met before calling.
+5. If a request violates policy, deny it and explain why.
+6. Transfer to human agent only if the request is out of scope. To transfer: call transfer_to_human_agents, then send "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
+7. Do not proactively offer compensation unless the user explicitly asks.
+
+## Be proactive with tools
+- When you have a user ID, look up their details right away using tools.
+- If you need to find which reservation/order is relevant, look up ALL of them.
+- Use search tools to find options (flights, products, plans) rather than asking the user to specify exact IDs.
+- Look up prices/availability from tools — never reuse old prices or guess.
+
+## After each tool result
+- Read the full result carefully. Check what is present AND what might be missing relative to policy requirements.
+- Use exact values from tool results (IDs, dates, amounts). Never guess.
+
+## Technical support
+- Follow the troubleshooting workflow step by step, in order. Do not skip steps.
+- After each fix, re-test to verify the issue is resolved before concluding.
+- Only "Excellent" speed means the data issue is fully resolved.
+
+## Key policy pitfalls
+- Exchanges/modifications of order items can only be called ONCE per order — collect all changes first.
+- Basic economy flights cannot be modified (but cabin class can be changed).
+- Check ALL overdue bills before resuming a suspended line.
 """.strip()
 
 SYSTEM_TEMPLATE = """
@@ -54,7 +81,7 @@ def to_api_messages(messages):
         elif isinstance(m, UserMessage):
             out.append({"role": "user", "content": m.content})
         elif isinstance(m, AssistantMessage):
-            d = {"role": "assistant", "content": m.content}
+            d = {"role": "assistant", "content": m.content or ""}
             if m.is_tool_call():
                 d["tool_calls"] = [
                     {
@@ -66,7 +93,7 @@ def to_api_messages(messages):
                 ]
             out.append(d)
         elif isinstance(m, ToolMessage):
-            out.append({"role": "tool", "content": m.content, "tool_call_id": m.id})
+            out.append({"role": "tool", "content": m.content or "", "tool_call_id": m.id})
     return out
 
 
@@ -84,19 +111,18 @@ def parse_response(choice):
         ]
     return AssistantMessage(
         role="assistant",
-        content=choice.content,
+        content=choice.content or "",
         tool_calls=tool_calls or None,
     )
 
 
 # ── AGENT ─────────────────────────────────────────────────────────────────────
 
-class CustomAgent(LLMAgent):
-    """Self-contained customer service agent.
+MAX_RETRIES = 3
 
-    Extends LLMAgent for compatibility with tau2's run_task() constructor,
-    but all logic is overridden here — nothing is hidden.
-    """
+
+class CustomAgent(LLMAgent):
+    """Self-contained customer service agent."""
 
     def __init__(self, tools: list[Tool], domain_policy: str, llm=None, llm_args=None):
         LocalAgent.__init__(self, tools=tools, domain_policy=domain_policy)
@@ -114,26 +140,30 @@ class CustomAgent(LLMAgent):
         )
 
     def generate_next_message(self, message: ValidAgentInputMessage, state: LLMAgentState):
-        # 1. Append incoming message(s) to conversation history
         if isinstance(message, MultiToolMessage):
             state.messages.extend(message.tool_messages)
         else:
             state.messages.append(message)
 
-        # 2. Build API request
         api_messages = to_api_messages(state.system_messages + state.messages)
         api_tools = [t.openai_schema for t in self.tools] if self.tools else None
 
-        # 3. Call LLM
-        response = completion(
-            model=self.llm,
-            messages=api_messages,
-            tools=api_tools,
-            tool_choice="auto" if api_tools else None,
-            **self.llm_args,
-        )
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = completion(
+                    model=self.llm,
+                    messages=api_messages,
+                    tools=api_tools,
+                    tool_choice="auto" if api_tools else None,
+                    **self.llm_args,
+                )
+                break
+            except Exception:
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
 
-        # 4. Parse response
         assistant_msg = parse_response(response.choices[0].message)
         state.messages.append(assistant_msg)
         return assistant_msg, state
