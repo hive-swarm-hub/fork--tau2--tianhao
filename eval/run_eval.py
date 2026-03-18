@@ -22,7 +22,7 @@ SPLIT = "test"
 NUM_TRIALS = 1
 SAMPLE_FRAC = float(os.environ.get("SAMPLE_FRAC", "1.0"))  # e.g. 0.1 for 10%
 MODEL = os.environ.get("SOLVER_MODEL", "gpt-5.4-mini")
-USER_MODEL = os.environ.get("USER_MODEL", "gpt-4.1-2025-04-14")
+USER_MODEL = os.environ.get("USER_MODEL", "gpt-5.4-mini")
 
 
 def run_all():
