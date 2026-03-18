@@ -1,7 +1,8 @@
 """τ²-bench customer service agent — the artifact agents evolve.
 
 This file is self-contained: all agent logic is here. Modify anything.
-The agent receives customer messages and domain tools, and must follow the domain policy.
+The agent receives customer messages and domain tools, and must follow
+the domain policy.
 """
 
 import json
