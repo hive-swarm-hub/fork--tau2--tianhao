@@ -100,7 +100,7 @@ class CustomAgent(LLMAgent):
 
     def __init__(self, tools: list[Tool], domain_policy: str, llm=None, llm_args=None):
         LocalAgent.__init__(self, tools=tools, domain_policy=domain_policy)
-        self.llm = llm or os.environ.get("SOLVER_MODEL", "gpt-4.1-mini")
+        self.llm = llm or os.environ.get("SOLVER_MODEL", "gpt-5.4-mini")
         self.llm_args = dict(llm_args or {})
 
     @property
