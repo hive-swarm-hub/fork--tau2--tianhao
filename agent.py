@@ -141,6 +141,7 @@ class CustomAgent(LLMAgent):
         LocalAgent.__init__(self, tools=tools, domain_policy=domain_policy)
         self.llm = llm or os.environ.get("SOLVER_MODEL", "gpt-5.4-mini")
         self.llm_args = dict(llm_args or {})
+        self.llm_args["top_p"] = 0.01  # reduce randomness (temp=0 unsupported)
 
     @property
     def system_prompt(self) -> str:
