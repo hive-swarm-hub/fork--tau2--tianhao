@@ -6,6 +6,7 @@ The agent receives customer messages and domain tools, and must follow the domai
 
 import json
 import os
+import re
 import time
 
 import litellm
@@ -67,11 +68,9 @@ You are a customer service agent. Follow the <policy> exactly — it is your sol
 - Cancellation eligibility: check ALL four criteria (booked within 24hrs, airline cancelled, business class, has insurance with covered reason). If NONE apply, deny cancellation.
 - Compensation: ONLY for silver/gold members OR has insurance OR flies business. Never for regular members in (basic) economy without insurance.
 
-## Retail-specific rules
-- You MUST authenticate the user via email OR name+zip code FIRST, even if they provide their user_id.
-- Exchange/modify items can only be called ONCE per order — collect ALL changes first before calling.
-- Cancel reason must be exactly "no longer needed" or "ordered by mistake".
-- Refund for returns must go to original payment method or an existing gift card.
+## Key policy pitfalls
+- Exchange/modify items can only be called ONCE per order — collect ALL changes first.
+- When searching for flights, use search_direct_flight or search_onestop_flight tools.
 
 ## Technical support (telecom)
 - NEVER transfer to human agent immediately for technical issues. Always follow the full troubleshooting workflow first.
@@ -105,9 +104,31 @@ SYSTEM_TEMPLATE = """
 </policy>
 """.strip()
 
+# ── TELECOM TOOL ANNOTATIONS ─────────────────────────────────────────────────
+
+def annotate_telecom(content: str) -> str:
+    """Add actionable notes to telecom tool results to guide the agent."""
+    if not content:
+        return content
+    notes = []
+    if '"roaming_enabled": false' in content or '"roaming_enabled":false' in content:
+        notes.append("⚠ roaming_enabled=false. If user is traveling, call enable_roaming AND ask user to toggle device data roaming ON.")
+    used_m = re.search(r'"data_used_gb":\s*([\d.]+)', content)
+    limit_m = re.search(r'"data_limit_gb":\s*([\d.]+)', content)
+    if used_m and limit_m and float(used_m.group(1)) > float(limit_m.group(1)):
+        notes.append(f"⚠ Data exceeded ({used_m.group(1)}GB/{limit_m.group(1)}GB). Offer refueling (max 2GB) or plan change.")
+    if re.search(r'locked.*pin|locked.*puk|sim.*locked', content, re.I):
+        notes.append("⚠ SIM locked. MUST call transfer_to_human_agents tool.")
+    contract_m = re.search(r'"contract_end_date":\s*"([^"]+)"', content)
+    if contract_m and '"status": "Suspended"' in content and contract_m.group(1) < "2025-02-25":
+        notes.append(f"⚠ Contract expired + suspended. Cannot resume — call transfer_to_human_agents.")
+    if notes:
+        return content + "\n[NOTES] " + " | ".join(notes)
+    return content
+
 # ── MESSAGE CONVERSION ────────────────────────────────────────────────────────
 
-def to_api_messages(messages):
+def to_api_messages(messages, annotator=None):
     """Convert tau2 message objects to OpenAI-style dicts."""
     out = []
     for m in messages:
@@ -128,7 +149,10 @@ def to_api_messages(messages):
                 ]
             out.append(d)
         elif isinstance(m, ToolMessage):
-            out.append({"role": "tool", "content": m.content or "", "tool_call_id": m.id})
+            content = m.content or ""
+            if annotator:
+                content = annotator(content)
+            out.append({"role": "tool", "content": content, "tool_call_id": m.id})
     return out
 
 
@@ -166,6 +190,7 @@ class CustomAgent(LLMAgent):
         LocalAgent.__init__(self, tools=tools, domain_policy=domain_policy)
         self.llm = llm or os.environ.get("SOLVER_MODEL", "openai/gpt-5.4-mini")
         self.llm_args = dict(llm_args or {})
+        self._is_telecom = "telecom" in domain_policy.lower()
 
     @property
     def system_prompt(self) -> str:
@@ -183,7 +208,8 @@ class CustomAgent(LLMAgent):
         else:
             state.messages.append(message)
 
-        api_messages = to_api_messages(state.system_messages + state.messages)
+        annotator = annotate_telecom if self._is_telecom else None
+        api_messages = to_api_messages(state.system_messages + state.messages, annotator=annotator)
         api_tools = [t.openai_schema for t in self.tools] if self.tools else None
 
         for attempt in range(MAX_RETRIES):
