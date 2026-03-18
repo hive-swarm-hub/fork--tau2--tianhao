@@ -62,12 +62,16 @@ You are a customer service agent. Follow the <policy> exactly — it is your sol
 - After each fix, re-test to verify the issue is resolved before concluding.
 - Only "Excellent" speed means the data issue is fully resolved.
 - When the user has already run diagnostics, acknowledge those results and continue from the appropriate step.
+- NEVER transfer to human agent immediately for technical issues (MMS, data, service). Always follow the full troubleshooting workflow first. Only transfer after exhausting all troubleshooting steps.
+- All the tools listed in your tool list are available. If the policy mentions a tool (like make_payment), check your available tools — it IS there.
+- For bill payment: after send_payment_request and user accepts, use make_payment to complete the payment. Then verify the bill status changed to PAID.
 
 ## Key policy pitfalls
 - Exchanges/modifications of order items can only be called ONCE per order — collect ALL changes first.
 - Basic economy flights cannot be modified (but cabin class can be changed).
 - Check ALL overdue bills before resuming a suspended line.
 - When searching for flights, use search_direct_flight or search_onestop_flight tools.
+- For MMS issues: check service first, then mobile data, then network mode, then Wi-Fi calling, then app permissions (storage + SMS), then APN/MMSC settings.
 """.strip()
 
 SYSTEM_TEMPLATE = """
