@@ -83,8 +83,9 @@ LOOP FOREVER:
 4. Run: `bash eval/eval.sh > run.log 2>&1`
 5. Read results: `grep "^accuracy:\|^cost_usd:" run.log`
 6. If empty, check `tail -n 50 run.log` for errors.
-7. Record in results.tsv (do not commit results.tsv).
-8. If accuracy improved, keep. If equal or worse, `git reset --hard HEAD~1`.
+7. **Review per-task results**: Check `eval_airline/`, `eval_retail/`, `eval_telecom/` for conversation logs. Read failed conversations to understand what went wrong — did the agent misunderstand the policy? Did it use the wrong tool? This informs your next experiment.
+8. Record in results.tsv (do not commit results.tsv).
+9. If accuracy improved, keep. If equal or worse, `git reset --hard HEAD~1`.
 
 **Timeout**: If a run exceeds 60 minutes, kill it.
 
