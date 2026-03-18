@@ -122,9 +122,12 @@ def parse_response(choice):
             )
             for tc in choice.tool_calls
         ]
+    content = choice.content or ""
+    if not content and not tool_calls:
+        content = "I'm sorry, could you repeat that? I want to make sure I help you correctly."
     return AssistantMessage(
         role="assistant",
-        content=choice.content or "",
+        content=content,
         tool_calls=tool_calls or None,
     )
 
@@ -141,7 +144,7 @@ class CustomAgent(LLMAgent):
         LocalAgent.__init__(self, tools=tools, domain_policy=domain_policy)
         self.llm = llm or os.environ.get("SOLVER_MODEL", "gpt-5.4-mini")
         self.llm_args = dict(llm_args or {})
-        self.llm_args["top_p"] = 0.01  # reduce randomness (temp=0 unsupported)
+        self.llm_args["top_p"] = 0.1  # reduce randomness (temp=0 unsupported)
 
     @property
     def system_prompt(self) -> str:
